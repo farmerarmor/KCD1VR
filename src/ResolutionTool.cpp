@@ -45,7 +45,9 @@ int main(int argc, char** argv)
     std::snprintf(instanceInfo.applicationInfo.engineName,
                   XR_MAX_ENGINE_NAME_SIZE, "KCD1VR");
     instanceInfo.applicationInfo.engineVersion = 1;
-    instanceInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    // Keep installer-time headset discovery compatible with OpenXR 1.0-only
+    // runtimes, matching the in-game DLL's API request.
+    instanceInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
 
     XrInstance instance = XR_NULL_HANDLE;
     XrResult result = xrCreateInstance(&instanceInfo, &instance);

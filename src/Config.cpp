@@ -86,6 +86,9 @@ void LoadConfig()
         GetPrivateProfileIntW(L"KCD1VR", L"PositionTracking", 1, path.c_str()) != 0;
     g_config.enableOpenXRProjection =
         GetPrivateProfileIntW(L"KCD1VR", L"OpenXRProjection", 1, path.c_str()) != 0;
+    g_config.useOpenXrSrgbSwapchains =
+        GetPrivateProfileIntW(L"KCD1VR", L"OpenXRSrgbSwapchains", 1,
+                              path.c_str()) != 0;
     g_config.enableHudQuad =
         GetPrivateProfileIntW(L"KCD1VR", L"HudQuad", 1, path.c_str()) != 0;
     g_config.enableDialogueScreen =
@@ -171,13 +174,14 @@ void LoadConfig()
     g_config.stereoRightTextureRva = static_cast<std::uint32_t>(
         GetPrivateProfileIntW(L"KCD1VR", L"StereoRightTextureRva", 0x02FFE9C8,
                               path.c_str()));
-    Log("Config: worldScale=%.3f, fallbackFov=%.1f, cullingFov=%.1f, xrDiagnosticMode=%d, headTracking=%d, positionTracking=%d, OpenXRProjection=%d, HudQuad=%d (%.2fm wide at %.2fm), dialogueScreen=%d (%.2fm wide at %.2fm, aspect %.3f), lockVerticalInput=%d, neutralize1919A=%d, doorMotionMode=%d, bypassSvoHistory=%d, traceSvo=%d, traceDoor=%d, separateSvoHistory=%d, DLSS=%d submit=%d quality=%d renderPreset=%d output=%ux%u depthInverted=%d rawPreSmaa=%d motionScale=%.3f replaceNativeTaa=%d gpuTiming=%d jitterScale=(%.2f,%.2f), cameraVtableRva=0x%08X, prepareCameraRva=0x%08X, dialogueCameraVtableRva=0x%08X",
+    Log("Config: worldScale=%.3f, fallbackFov=%.1f, cullingFov=%.1f, xrDiagnosticMode=%d, headTracking=%d, positionTracking=%d, OpenXRProjection=%d, OpenXRSrgbSwapchains=%d, HudQuad=%d (%.2fm wide at %.2fm), dialogueScreen=%d (%.2fm wide at %.2fm, aspect %.3f), lockVerticalInput=%d, neutralize1919A=%d, doorMotionMode=%d, bypassSvoHistory=%d, traceSvo=%d, traceDoor=%d, separateSvoHistory=%d, DLSS=%d submit=%d quality=%d renderPreset=%d output=%ux%u depthInverted=%d rawPreSmaa=%d motionScale=%.3f replaceNativeTaa=%d gpuTiming=%d jitterScale=(%.2f,%.2f), cameraVtableRva=0x%08X, prepareCameraRva=0x%08X, dialogueCameraVtableRva=0x%08X",
         g_config.worldScale, g_config.renderFovDegrees,
         g_config.cullingFovDegrees,
         g_config.openXrDiagnosticMode,
         g_config.enableHeadTracking ? 1 : 0,
         g_config.enablePositionTracking ? 1 : 0,
         g_config.enableOpenXRProjection ? 1 : 0,
+        g_config.useOpenXrSrgbSwapchains ? 1 : 0,
         g_config.enableHudQuad ? 1 : 0, g_config.hudWidth, g_config.hudDistance,
         g_config.enableDialogueScreen ? 1 : 0, g_config.dialogueScreenWidth,
         g_config.dialogueScreenDistance, g_config.dialogueScreenAspect,

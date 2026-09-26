@@ -17,6 +17,17 @@ Version 0.1.67 has been tested in-headset with the Steam build of KCD 1.9.7.
 The mod uses version-specific hooks, so other game builds are not currently
 supported unless their addresses and signatures are independently validated.
 
+Version 0.1.68 is a focused color-space test build. It submits KCD's
+gamma-encoded final image through sRGB OpenXR swapchains instead of declaring
+those pixels linear. Set `OpenXRSrgbSwapchains=0` to reproduce 0.1.67's
+washed-out headset color for a direct A/B comparison.
+
+Version 0.1.69 retains that color correction and requests the OpenXR 1.0 API
+from both the in-game runtime and installer resolution tool. KCD1VR uses only
+OpenXR 1.0 core functionality plus `XR_KHR_D3D11_enable`; declaring the newer
+header version unnecessarily prevented some 1.0 runtimes, including reported
+Virtual Desktop configurations, from creating an instance.
+
 Working in the tested build:
 
 - native dual-render stereo with no AER;
@@ -153,6 +164,7 @@ The most useful settings are in `Bin\Win64\KCD1VR.ini`:
 | `DialogueScreenDistance`, `DialogueScreenWidth` | Dialogue-screen placement and size. |
 | `DialogueScreenAspect` | `0` follows the live eye texture; positive values force an aspect ratio. |
 | `PositionTracking` | `1` enables headset translation; `0` keeps orientation only. |
+| `OpenXRSrgbSwapchains` | `1` correctly identifies KCD's gamma-encoded final color to OpenXR. |
 | `LockVerticalCameraInput` | Prevents mouse/gamepad pitch while retaining headset pitch. |
 | `CullingFovDegrees` | Widens the center camera used by visibility and LOD decisions. |
 | `DLSS` / `DLSSSubmit` | Enable DLSS and submit its output to OpenXR. |

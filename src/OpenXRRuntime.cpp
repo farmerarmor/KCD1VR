@@ -38,6 +38,38 @@ XrQuaternionf AverageOrientation(const XrQuaternionf& a, XrQuaternionf b)
     return result;
 }
 
+DXGI_FORMAT SrgbVariant(DXGI_FORMAT format)
+{
+    switch (format) {
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+        return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+        return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    case DXGI_FORMAT_B8G8R8X8_TYPELESS:
+    case DXGI_FORMAT_B8G8R8X8_UNORM:
+        return DXGI_FORMAT_B8G8R8X8_UNORM_SRGB;
+    default:
+        return format;
+    }
+}
+
+DXGI_FORMAT SelectOpenXrColorFormat(DXGI_FORMAT sourceFormat,
+                                    const std::vector<std::int64_t>& supportedFormats,
+                                    bool useSrgb)
+{
+    const DXGI_FORMAT preferred = useSrgb ? SrgbVariant(sourceFormat) : sourceFormat;
+    const auto isSupported = [&supportedFormats](DXGI_FORMAT format) {
+        return std::find(supportedFormats.begin(), supportedFormats.end(),
+                         static_cast<std::int64_t>(format)) != supportedFormats.end();
+    };
+    if (isSupported(preferred)) {
+        return preferred;
+    }
+    return isSupported(sourceFormat) ? sourceFormat : DXGI_FORMAT_UNKNOWN;
+}
+
 }  // namespace
 
 OpenXRRuntime& OpenXRRuntime::Instance()
@@ -100,12 +132,24 @@ bool OpenXRRuntime::CreateInstance()
     strncpy_s(createInfo.applicationInfo.engineName, "CryEngine/KCD1",
               XR_MAX_ENGINE_NAME_SIZE - 1);
     createInfo.applicationInfo.engineVersion = 1;
-    createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    // KCD1VR uses only OpenXR 1.0 core commands plus XR_KHR_D3D11_enable.
+    // Requesting the header's current (1.1) version can make an otherwise
+    // compatible OpenXR 1.0 runtime reject instance creation.
+    createInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     createInfo.enabledExtensionCount = 1;
     createInfo.enabledExtensionNames = extensions;
 
     if (!Check(xrCreateInstance(&createInfo, &m_instance), "creating instance")) {
         return false;
+    }
+
+    XrInstanceProperties instanceProperties{XR_TYPE_INSTANCE_PROPERTIES};
+    if (XR_SUCCEEDED(xrGetInstanceProperties(m_instance, &instanceProperties))) {
+        Log("OpenXR runtime: %s %u.%u.%u; requested API 1.0.0",
+            instanceProperties.runtimeName,
+            XR_VERSION_MAJOR(instanceProperties.runtimeVersion),
+            XR_VERSION_MINOR(instanceProperties.runtimeVersion),
+            XR_VERSION_PATCH(instanceProperties.runtimeVersion));
     }
 
     XrSystemGetInfo systemInfo{XR_TYPE_SYSTEM_GET_INFO};
@@ -280,7 +324,7 @@ bool OpenXRRuntime::EnsureSwapchain(ID3D11Texture2D* backBuffer)
 
     std::uint32_t width = sourceWidth;
     std::uint32_t height = sourceHeight;
-    DXGI_FORMAT swapchainFormat = backBufferDescription.Format;
+    DXGI_FORMAT sourceCopyFormat = backBufferDescription.Format;
     const bool dlssWasActive = m_dlssSwapchainActive;
     bool dlssReady = false;
     if (GetConfig().enableDlss && GetConfig().dlssOutputWidth > 0 &&
@@ -293,10 +337,29 @@ bool OpenXRRuntime::EnsureSwapchain(ID3D11Texture2D* backBuffer)
             (dlssWasActive || DlssUpscaler::Instance().InputsReady())) {
             width = GetConfig().dlssOutputWidth;
             height = GetConfig().dlssOutputHeight;
-            swapchainFormat = dlssFormat;
+            sourceCopyFormat = dlssFormat;
         } else {
             dlssReady = false;
         }
+    }
+
+    std::uint32_t formatCount = 0;
+    xrEnumerateSwapchainFormats(m_session, 0, &formatCount, nullptr);
+    std::vector<std::int64_t> formats(formatCount);
+    xrEnumerateSwapchainFormats(m_session, formatCount, &formatCount, formats.data());
+    const DXGI_FORMAT swapchainFormat = SelectOpenXrColorFormat(
+        sourceCopyFormat, formats, GetConfig().useOpenXrSrgbSwapchains);
+    if (swapchainFormat == DXGI_FORMAT_UNKNOWN) {
+        Log("OpenXR runtime supports neither the preferred color format nor source format %d",
+            static_cast<int>(sourceCopyFormat));
+        return false;
+    }
+    if (GetConfig().useOpenXrSrgbSwapchains &&
+        swapchainFormat == sourceCopyFormat &&
+        SrgbVariant(sourceCopyFormat) != sourceCopyFormat) {
+        Log("OpenXR runtime does not support sRGB format %d; falling back to source format %d",
+            static_cast<int>(SrgbVariant(sourceCopyFormat)),
+            static_cast<int>(sourceCopyFormat));
     }
 
     if (m_stereoSwapchain != XR_NULL_HANDLE && !m_recreateSwapchain &&
@@ -306,16 +369,7 @@ bool OpenXRRuntime::EnsureSwapchain(ID3D11Texture2D* backBuffer)
     }
     DestroySwapchain();
 
-    std::uint32_t formatCount = 0;
-    xrEnumerateSwapchainFormats(m_session, 0, &formatCount, nullptr);
-    std::vector<std::int64_t> formats(formatCount);
-    xrEnumerateSwapchainFormats(m_session, formatCount, &formatCount, formats.data());
     const auto requested = static_cast<std::int64_t>(swapchainFormat);
-    if (std::find(formats.begin(), formats.end(), requested) == formats.end()) {
-        Log("OpenXR runtime does not support the game's backbuffer DXGI format %d",
-            static_cast<int>(swapchainFormat));
-        return false;
-    }
 
     XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
     createInfo.arraySize = 2;
@@ -349,7 +403,8 @@ bool OpenXRRuntime::EnsureSwapchain(ID3D11Texture2D* backBuffer)
     m_dlssSwapchainActive = dlssReady;
     m_recreateSwapchain = false;
     m_loggedRejectedBackbuffer = false;
-    Log("Stereo swapchain created: %ux%u per eye, format=%d%s", width, height,
+    Log("Stereo swapchain created: %ux%u per eye, source format=%d, OpenXR format=%d%s",
+        width, height, static_cast<int>(sourceCopyFormat),
         static_cast<int>(m_swapchainFormat), dlssReady ? " (DLSS output)" : "");
     return true;
 }
@@ -358,18 +413,32 @@ bool OpenXRRuntime::EnsureHudSwapchain(DXGI_FORMAT format)
 {
     const std::uint32_t width = m_engineEyeWidth;
     const std::uint32_t height = m_engineEyeHeight;
-    if (m_hudSwapchain != XR_NULL_HANDLE && m_hudSwapchainFormat == format &&
+    if (width == 0 || height == 0) {
+        return false;
+    }
+
+    std::uint32_t formatCount = 0;
+    xrEnumerateSwapchainFormats(m_session, 0, &formatCount, nullptr);
+    std::vector<std::int64_t> formats(formatCount);
+    xrEnumerateSwapchainFormats(m_session, formatCount, &formatCount, formats.data());
+    const DXGI_FORMAT swapchainFormat = SelectOpenXrColorFormat(
+        format, formats, GetConfig().useOpenXrSrgbSwapchains);
+    if (swapchainFormat == DXGI_FORMAT_UNKNOWN) {
+        Log("OpenXR runtime supports neither the preferred HUD color format nor source format %d",
+            static_cast<int>(format));
+        return false;
+    }
+
+    if (m_hudSwapchain != XR_NULL_HANDLE &&
+        m_hudSwapchainFormat == swapchainFormat &&
         m_hudSwapchainWidth == width && m_hudSwapchainHeight == height) {
         return true;
     }
     DestroyHudSwapchain();
 
-    if (width == 0 || height == 0) {
-        return false;
-    }
     XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
     createInfo.arraySize = 1;
-    createInfo.format = static_cast<std::int64_t>(format);
+    createInfo.format = static_cast<std::int64_t>(swapchainFormat);
     createInfo.width = width;
     createInfo.height = height;
     createInfo.mipCount = 1;
@@ -393,11 +462,12 @@ bool OpenXRRuntime::EnsureHudSwapchain(DXGI_FORMAT format)
         DestroyHudSwapchain();
         return false;
     }
-    m_hudSwapchainFormat = format;
+    m_hudSwapchainFormat = swapchainFormat;
     m_hudSwapchainWidth = width;
     m_hudSwapchainHeight = height;
-    Log("HUD swapchain created: %ux%u, format=%d", width, height,
-        static_cast<int>(format));
+    Log("HUD swapchain created: %ux%u, source format=%d, OpenXR format=%d",
+        width, height, static_cast<int>(format),
+        static_cast<int>(swapchainFormat));
     return true;
 }
 

@@ -34,6 +34,7 @@ struct Config {
     bool enableHeadTracking = true;
     bool enablePositionTracking = true;
     bool enableOpenXRProjection = true;
+    bool useOpenXrSrgbSwapchains = true;
     bool enableHudQuad = true;
     bool enableDialogueScreen = true;
     bool lockVerticalCameraInput = false;
